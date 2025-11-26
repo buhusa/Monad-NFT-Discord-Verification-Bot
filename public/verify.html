@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verify NFT Ownership</title>
+    <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 500px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 { color: #333; margin-bottom: 10px; font-size: 28px; }
+        p { color: #666; margin-bottom: 30px; }
+        .btn {
+            width: 100%;
+            padding: 16px;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-bottom: 15px;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4); }
+        .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        .status {
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            display: none;
+        }
+        .status.success { background: #d1fae5; color: #065f46; display: block; }
+        .status.error { background: #fee2e2; color: #991b1b; display: block; }
+        .status.info { background: #dbeafe; color: #1e40af; display: block; }
+        .wallet-info {
+            background: #f3f4f6;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 15px 0;
+            display: none;
+        }
+        .wallet-info.show { display: block; }
+        .wallet-address {
+            font-family: monospace;
+            font-size: 14px;
+            color: #374151;
+            word-break: break-all;
+        }
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+            display: none;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔐 NFT Verification</h1>
+        <p>Connect your wallet to verify NFT ownership</p>
+
+        <button id="connectBtn" class="btn btn-primary">Connect Wallet</button>
+        <button id="signBtn" class="btn btn-primary" style="display:none;">Sign Message & Verify</button>
+
+        <div id="walletInfo" class="wallet-info">
+            <strong>Connected Wallet:</strong><br>
+            <span class="wallet-address" id="walletAddress"></span>
+        </div>
+
+        <div id="status" class="status"></div>
+        <div id="spinner" class="spinner"></div>
+    </div>
+
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const token = urlParams.get('token');
+        
+        let provider, signer, userAddress;
+
+        const connectBtn = document.getElementById('connectBtn');
+        const signBtn = document.getElementById('signBtn');
+        const walletInfo = document.getElementById('walletInfo');
+        const walletAddress = document.getElementById('walletAddress');
+        const status = document.getElementById('status');
+        const spinner = document.getElementById('spinner');
+
+        function showStatus(message, type) {
+            status.textContent = message;
+            status.className = `status ${type}`;
+            status.style.display = 'block';
+        }
+
+        function showSpinner(show) {
+            spinner.style.display = show ? 'block' : 'none';
+        }
+
+        connectBtn.addEventListener('click', async () => {
+            try {
+                if (typeof window.ethereum === 'undefined') {
+                    showStatus('Please install MetaMask or another Web3 wallet!', 'error');
+                    return;
+                }
+
+                showSpinner(true);
+                // Use ethers from the global window object
+                provider = new window.ethers.providers.Web3Provider(window.ethereum);
+                await provider.send("eth_requestAccounts", []);
+                signer = provider.getSigner();
+                userAddress = await signer.getAddress();
+
+                walletAddress.textContent = userAddress;
+                walletInfo.classList.add('show');
+                connectBtn.style.display = 'none';
+                signBtn.style.display = 'block';
+                showStatus('Wallet connected! Now click "Sign Message" to verify.', 'success');
+                showSpinner(false);
+            } catch (error) {
+                console.error(error);
+                showStatus('Failed to connect wallet: ' + error.message, 'error');
+                showSpinner(false);
+            }
+        });
+
+        signBtn.addEventListener('click', async () => {
+            try {
+                showSpinner(true);
+                signBtn.disabled = true;
+                showStatus('Please sign the message in your wallet...', 'info');
+
+                const message = 'Verify NFT for Discord';
+                const signature = await signer.signMessage(message);
+
+                showStatus('Verifying NFT ownership...', 'info');
+
+                const response = await fetch('/api/verify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token, walletAddress: userAddress, signature })
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    showStatus('✅ ' + result.message + ' You can close this window.', 'success');
+                } else {
+                    showStatus('❌ ' + result.error, 'error');
+                    signBtn.disabled = false;
+                }
+                showSpinner(false);
+            } catch (error) {
+                console.error(error);
+                showStatus('Verification failed: ' + error.message, 'error');
+                signBtn.disabled = false;
+                showSpinner(false);
+            }
+        });
+    </script>
+</body>
+</html>
